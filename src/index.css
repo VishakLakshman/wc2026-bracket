@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #050f0a;
+    color: #e5e7eb;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Barlow Condensed', sans-serif;
+  }
+
+  /* Subtle pitch-line texture for the background */
+  .pitch-texture {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 59px,
+      rgba(255, 255, 255, 0.015) 59px,
+      rgba(255, 255, 255, 0.015) 60px
+    );
+  }
+
+  /* Scrollbar styling for bracket overflow */
+  .bracket-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .bracket-scroll::-webkit-scrollbar-track {
+    background: #0a1f14;
+  }
+  .bracket-scroll::-webkit-scrollbar-thumb {
+    background: #164026;
+    border-radius: 3px;
+  }
+  .bracket-scroll::-webkit-scrollbar-thumb:hover {
+    background: #22c55e;
+  }
+}
