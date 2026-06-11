@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,48 +6,59 @@
 
 @layer base {
   html {
-    background-color: #050f0a;
-    color: #e5e7eb;
+    background-color: #060d0a;
+    color: #e2e8f0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-
   body {
     font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
   }
-
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 }
 
 @layer utilities {
-  .font-display {
-    font-family: 'Barlow Condensed', sans-serif;
+  /* Scrollbar */
+  .bracket-scroll::-webkit-scrollbar       { height: 4px; }
+  .bracket-scroll::-webkit-scrollbar-track { background: #091410; }
+  .bracket-scroll::-webkit-scrollbar-thumb { background: #1a3d2e; border-radius: 2px; }
+  .bracket-scroll::-webkit-scrollbar-thumb:hover { background: #00ff87; }
+
+  /* Gradient border trick — requires a wrapper with padding */
+  .grad-border {
+    background: linear-gradient(#0d1f18, #0d1f18) padding-box,
+                linear-gradient(135deg, rgba(0,255,135,0.3), rgba(0,255,135,0.05) 50%, rgba(255,202,40,0.1)) border-box;
+    border: 1px solid transparent;
+  }
+  .grad-border-gold {
+    background: linear-gradient(#0d1f18, #0d1f18) padding-box,
+                linear-gradient(135deg, rgba(255,202,40,0.5), rgba(255,202,40,0.1) 50%, transparent) border-box;
+    border: 1px solid transparent;
   }
 
-  /* Subtle pitch-line texture for the background */
-  .pitch-texture {
-    background-image: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 59px,
-      rgba(255, 255, 255, 0.015) 59px,
-      rgba(255, 255, 255, 0.015) 60px
-    );
+  /* Electric glow on focus */
+  .focus-electric:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #060d0a, 0 0 0 4px #00ff87;
   }
 
-  /* Scrollbar styling for bracket overflow */
-  .bracket-scroll::-webkit-scrollbar {
-    height: 6px;
+  /* Section number label */
+  .step-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #00ff87;
+    opacity: 0.6;
   }
-  .bracket-scroll::-webkit-scrollbar-track {
-    background: #0a1f14;
-  }
-  .bracket-scroll::-webkit-scrollbar-thumb {
-    background: #164026;
-    border-radius: 3px;
-  }
-  .bracket-scroll::-webkit-scrollbar-thumb:hover {
-    background: #22c55e;
+
+  /* Shimmer text for champion */
+  .text-shimmer {
+    background: linear-gradient(90deg, #ffd740 0%, #ffe082 25%, #ffca28 50%, #ffe082 75%, #ffd740 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 2.5s linear infinite;
   }
 }
