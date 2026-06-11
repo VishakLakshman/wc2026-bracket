@@ -1,360 +1,152 @@
 /**
- * SharePanel.jsx
+ * useScreenshot.js
  *
- * A self-contained 1200 × auto px panel that html2canvas captures
- * to produce the shareable bracket PNG.
+ * Wraps html2canvas to capture a DOM node as a PNG and either
+ * download it or share it via the Web Share API.
  *
- * It is always in the DOM (rendered off-screen via `sr-only`-style
- * positioning) so html2canvas can measure its real dimensions.
- * We use `position: fixed; left: -9999px` rather than `display:none`
- * or `visibility:hidden` because html2canvas can't capture hidden
- * elements.
- *
- * Contents (top → bottom):
- *   1. Header bar — logo + "wc2026bracket.vercel.app" watermark
- *   2. Group Results — compact 4-col grid of all 12 groups
- *   3. Knockout Bracket — the full bracket tree
- *   4. Champion callout — shown when Final winner is picked
- *   5. Footer — "Made with wc2026bracket.vercel.app"
- *
- * Props:
- *   panelRef       — forwarded ref attached to the root div
- *   groupStage     — from useBracket
- *   thirdPlace     — from useBracket
- *   knockout       — from useBracket
- *   completedGroups— from useBracket
- *   champion       — from useBracket (team id string | null)
- *   getTeam        — fn(id) => team | null
- *   onAdvance      — pass-through (screenshot is non-interactive,
- *                    but BracketView requires the prop)
+ * status: "idle" | "capturing" | "done" | "error"
+ * canShare: boolean — true if navigator.share + files are supported
  */
 
-import { forwardRef } from "react";
-import BracketView from "./BracketView";
-import { GROUPS } from "../data/teams";
+import { useState, useCallback } from "react";
+
+const FILENAME = "wc2026-bracket.png";
 
 // ─────────────────────────────────────────────────────────────
-// RANK CONFIG  (mirrors GroupCard — kept local to avoid coupling)
+// CANVAS CAPTURE
 // ─────────────────────────────────────────────────────────────
 
-const RANK_STYLES = [
-  { label: "1",  bg: "#16a34a22", text: "#4ade80", border: "#16a34a55" }, // grass
-  { label: "2",  bg: "#0d948022", text: "#2dd4bf", border: "#0d948055" }, // teal
-  { label: "3",  bg: "#d9770622", text: "#fbbf24", border: "#d9770655" }, // amber
-  { label: "—",  bg: "transparent", text: "#374151", border: "#374151" }, // eliminated
-];
+async function captureElement(element) {
+  const html2canvas = (await import("html2canvas")).default;
 
-// ─────────────────────────────────────────────────────────────
-// GROUP RESULTS GRID
-// ─────────────────────────────────────────────────────────────
+  // Measure the element's true rendered size including any overflow
+  // (the bracket uses absolute positioning that can exceed offsetHeight)
+  const rect = element.getBoundingClientRect();
 
-function GroupResultsGrid({ groupStage }) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
-        gap: 12,
-        padding: "16px 24px",
-      }}
-    >
-      {GROUPS.map((g) => {
-        const { teams, advancers } = groupStage[g];
-        return (
-          <div
-            key={g}
-            style={{
-              background: "#0a1f14",
-              border: "1px solid #164026",
-              borderRadius: 8,
-              overflow: "hidden",
-            }}
-          >
-            {/* Group header */}
-            <div
-              style={{
-                background: "#0f2e1d",
-                borderBottom: "1px solid #164026",
-                padding: "4px 10px",
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                color: "#fff",
-              }}
-            >
-              Group {g}
-            </div>
+  // scrollHeight / scrollWidth capture content that overflows
+  const w = element.scrollWidth;
+  const h = element.scrollHeight;
 
-            {/* Team rows */}
-            {teams.map((team) => {
-              const rankIdx = advancers.indexOf(team.id); // 0,1,2 or -1
-              const isEliminated = advancers.length === 3 && rankIdx === -1;
-              const style =
-                rankIdx >= 0
-                  ? RANK_STYLES[rankIdx]
-                  : isEliminated
-                  ? RANK_STYLES[3]
-                  : { label: "", bg: "transparent", text: "#d1d5db", border: "transparent" };
+  const canvas = await html2canvas(element, {
+    scale:           2,           // retina quality
+    useCORS:         true,
+    logging:         false,
+    backgroundColor: "#050f0a",   // explicit bg — never transparent/black
+    // Tell html2canvas the exact dimensions to capture
+    width:           w,
+    height:          h,
+    // windowWidth forces layout at the panel width, not the viewport width,
+    // so nothing reflows when the panel is off-screen
+    windowWidth:     element.scrollWidth,
+    windowHeight:    element.scrollHeight,
+    // x/y relative to the element itself — not the page
+    x: 0,
+    y: 0,
+    // Prevent html2canvas from trying to scroll to the element
+    scrollX: 0,
+    scrollY: 0,
+  });
 
-              return (
-                <div
-                  key={team.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "3px 10px",
-                    background: style.bg,
-                    borderBottom: "1px solid #0f2e1d",
-                  }}
-                >
-                  <span style={{ fontSize: 13, lineHeight: 1, width: 18, textAlign: "center" }}>
-                    {team.flag}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 11,
-                      color: style.text,
-                      flex: 1,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      opacity: isEliminated ? 0.4 : 1,
-                    }}
-                  >
-                    {team.name}
-                  </span>
-                  {rankIdx >= 0 && (
-                    <span
-                      style={{
-                        fontFamily: "'Barlow Condensed', sans-serif",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: style.text,
-                        background: style.bg,
-                        border: `1px solid ${style.border}`,
-                        borderRadius: 3,
-                        padding: "1px 4px",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {rankIdx + 1}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("canvas.toBlob returned null"));
+      },
+      "image/png",
+      1.0
+    );
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
-// SHARE PANEL
+// HELPERS
 // ─────────────────────────────────────────────────────────────
 
-const PANEL_W = 1200;
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement("a");
+  a.href          = url;
+  a.download      = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }, 1000);
+}
 
-const SharePanel = forwardRef(function SharePanel(
-  { groupStage, thirdPlace, knockout, completedGroups, champion, getTeam, onAdvance },
-  ref
-) {
-  const championTeam = getTeam(champion);
+// ─────────────────────────────────────────────────────────────
+// FEATURE DETECT
+// ─────────────────────────────────────────────────────────────
 
-  return (
-    /*
-     * Position fixed off-screen so it's in the DOM and measurable
-     * by html2canvas, but invisible to the user.
-     * We use `left: -9999px` not `display:none` — hidden elements
-     * cannot be captured by html2canvas.
-     */
-    <div
-      style={{
-        position: "fixed",
-        left: -9999,
-        top: 0,
-        zIndex: -1,
-        width: PANEL_W,
-        // Let height grow naturally with content
-      }}
-    >
-      <div
-        ref={ref}
-        style={{
-          width: PANEL_W,
-          background: "#050f0a",
-          color: "#e5e7eb",
-          fontFamily: "'Inter', sans-serif",
-          // Explicit overflow visible so absolutely-positioned bracket is captured
-          overflow: "visible",
-        }}
-      >
-        {/* ── 1. Header ──────────────────────────────────── */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "16px 24px",
-            borderBottom: "1px solid #164026",
-            background: "#0a1f14",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 28, lineHeight: 1 }}>🏆</span>
-            <div>
-              <div
-                style={{
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  fontSize: 22,
-                  fontWeight: 800,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  color: "#fff",
-                  lineHeight: 1,
-                }}
-              >
-                WC 2026
-              </div>
-              <div
-                style={{
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  fontSize: 11,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  color: "#22c55e",
-                  lineHeight: 1,
-                  marginTop: 2,
-                }}
-              >
-                Bracket Predictor
-              </div>
-            </div>
-          </div>
+function detectCanShare() {
+  if (typeof navigator === "undefined" || !navigator.share) return false;
+  if (!navigator.canShare) return false;
+  try {
+    return navigator.canShare({
+      files: [new File([""], "test.png", { type: "image/png" })],
+    });
+  } catch {
+    return false;
+  }
+}
 
-          {/* Watermark URL */}
-          <div
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 11,
-              color: "#164026",
-              letterSpacing: "0.05em",
-            }}
-          >
-            wc2026bracket.vercel.app
-          </div>
-        </div>
+// ─────────────────────────────────────────────────────────────
+// HOOK
+// ─────────────────────────────────────────────────────────────
 
-        {/* ── 2. Champion banner (if Final picked) ───────── */}
-        {championTeam && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "20px 24px 16px",
-              borderBottom: "1px solid #164026",
-              background: "linear-gradient(180deg, rgba(229,184,32,0.08) 0%, transparent 100%)",
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: 11,
-                letterSpacing: "0.25em",
-                textTransform: "uppercase",
-                color: "#e6b820",
-                marginBottom: 6,
-              }}
-            >
-              World Cup Champion
-            </div>
-            <div
-              style={{
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: 36,
-                fontWeight: 800,
-                color: "#f5c842",
-                lineHeight: 1,
-              }}
-            >
-              {championTeam.flag}{"  "}{championTeam.name}
-            </div>
-          </div>
-        )}
+export function useScreenshot(ref) {
+  const [status, setStatus] = useState("idle");
+  const canShare = detectCanShare();
 
-        {/* ── 3. Group Results ────────────────────────────── */}
-        <div
-          style={{
-            borderBottom: "1px solid #164026",
-          }}
-        >
-          <div
-            style={{
-              padding: "10px 24px 4px",
-              fontFamily: "'Barlow Condensed', sans-serif",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "#374151",
-            }}
-          >
-            Group Stage
-          </div>
-          <GroupResultsGrid groupStage={groupStage} />
-        </div>
+  function flashDone() {
+    setStatus("done");
+    setTimeout(() => setStatus("idle"), 2500);
+  }
 
-        {/* ── 4. Knockout Bracket ─────────────────────────── */}
-        <div style={{ padding: "16px 24px 0" }}>
-          <div
-            style={{
-              fontFamily: "'Barlow Condensed', sans-serif",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "#374151",
-              marginBottom: 8,
-            }}
-          >
-            Knockout Stage
-          </div>
-          {/*
-           * BracketView renders the full bracket tree.
-           * We pass completedGroups=12 and thirdPlaceCount=8 to ensure
-           * it never shows the locked overlay, even during partial state.
-           * onAdvance is a no-op since the panel is non-interactive.
-           */}
-          <BracketView
-            knockout={knockout}
-            completedGroups={12}
-            thirdPlaceCount={8}
-            onAdvance={() => {}}
-            getTeam={getTeam}
-          />
-        </div>
+  const download = useCallback(async () => {
+    if (!ref.current || status === "capturing") return;
+    setStatus("capturing");
+    try {
+      const blob = await captureElement(ref.current);
+      triggerDownload(blob, FILENAME);
+      flashDone();
+    } catch (err) {
+      console.error("[useScreenshot] download error:", err);
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  }, [ref, status]);
 
-        {/* ── 5. Footer ───────────────────────────────────── */}
-        <div
-          style={{
-            padding: "12px 24px",
-            borderTop: "1px solid #0f2e1d",
-            textAlign: "center",
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 10,
-            color: "#1f4d2e",
-            letterSpacing: "0.05em",
-          }}
-        >
-          Made with wc2026bracket.vercel.app · For entertainment purposes only
-        </div>
-      </div>
-    </div>
-  );
-});
+  const share = useCallback(async () => {
+    if (!ref.current || status === "capturing") return;
+    setStatus("capturing");
+    try {
+      const blob = await captureElement(ref.current);
+      const file = new File([blob], FILENAME, { type: "image/png" });
 
-export default SharePanel;
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "My WC 2026 Bracket",
+          text:  "Check out my 2026 FIFA World Cup bracket prediction!",
+        });
+      } else {
+        triggerDownload(blob, FILENAME);
+      }
+      flashDone();
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        setStatus("idle");
+        return;
+      }
+      console.error("[useScreenshot] share error:", err);
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  }, [ref, status]);
+
+  return { download, share, status, canShare };
+}

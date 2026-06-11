@@ -4,9 +4,6 @@
  * Wraps html2canvas to capture a DOM node as a PNG and either
  * download it or share it via the Web Share API.
  *
- * Usage:
- *   const { download, share, status, canShare } = useScreenshot(ref);
- *
  * status: "idle" | "capturing" | "done" | "error"
  * canShare: boolean — true if navigator.share + files are supported
  */
@@ -19,31 +16,35 @@ const FILENAME = "wc2026-bracket.png";
 // CANVAS CAPTURE
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Runs html2canvas on the given element and returns a Blob.
- * We import html2canvas lazily (dynamic import) so it doesn't
- * bloat the initial bundle.
- */
 async function captureElement(element) {
   const html2canvas = (await import("html2canvas")).default;
 
+  // Measure the element's true rendered size including any overflow
+  // (the bracket uses absolute positioning that can exceed offsetHeight)
+  const rect = element.getBoundingClientRect();
+
+  // scrollHeight / scrollWidth capture content that overflows
+  const w = element.scrollWidth;
+  const h = element.scrollHeight;
+
   const canvas = await html2canvas(element, {
-    // Retina quality
-    scale: 2,
-    // Allow cross-origin images (flag SVGs if added later)
-    useCORS: true,
-    // Logging off in production
-    logging: false,
-    // Use the element's own background — don't let h2c override it
-    backgroundColor: null,
-    // Capture the full element even if it extends beyond the viewport
-    scrollX: 0,
-    scrollY: 0,
-    // Fix pixel rounding on high-dpi screens
+    scale:           2,           // retina quality
+    useCORS:         true,
+    logging:         false,
+    backgroundColor: "#050f0a",   // explicit bg — never transparent/black
+    // Tell html2canvas the exact dimensions to capture
+    width:           w,
+    height:          h,
+    // windowWidth forces layout at the panel width, not the viewport width,
+    // so nothing reflows when the panel is off-screen
+    windowWidth:     element.scrollWidth,
+    windowHeight:    element.scrollHeight,
+    // x/y relative to the element itself — not the page
     x: 0,
     y: 0,
-    width:  element.offsetWidth,
-    height: element.offsetHeight,
+    // Prevent html2canvas from trying to scroll to the element
+    scrollX: 0,
+    scrollY: 0,
   });
 
   return new Promise((resolve, reject) => {
@@ -62,19 +63,14 @@ async function captureElement(element) {
 // HELPERS
 // ─────────────────────────────────────────────────────────────
 
-function blobToObjectURL(blob) {
-  return URL.createObjectURL(blob);
-}
-
 function triggerDownload(blob, filename) {
-  const url = blobToObjectURL(blob);
+  const url = URL.createObjectURL(blob);
   const a   = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
+  a.href          = url;
+  a.download      = filename;
   a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  // Cleanup after a short delay so the download has time to start
   setTimeout(() => {
     URL.revokeObjectURL(url);
     document.body.removeChild(a);
@@ -85,14 +81,8 @@ function triggerDownload(blob, filename) {
 // FEATURE DETECT
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Returns true if the browser supports sharing files via
- * navigator.share — available on Safari (iOS/macOS 15+) and Chrome
- * on Android. Desktop Chrome does NOT support sharing files.
- */
 function detectCanShare() {
   if (typeof navigator === "undefined" || !navigator.share) return false;
-  // navigator.canShare requires a test object to check file support
   if (!navigator.canShare) return false;
   try {
     return navigator.canShare({
@@ -108,18 +98,14 @@ function detectCanShare() {
 // ─────────────────────────────────────────────────────────────
 
 export function useScreenshot(ref) {
-  const [status, setStatus] = useState("idle"); // "idle"|"capturing"|"done"|"error"
+  const [status, setStatus] = useState("idle");
   const canShare = detectCanShare();
 
-  // Reset to idle after showing "done" for 2.5 s
   function flashDone() {
     setStatus("done");
     setTimeout(() => setStatus("idle"), 2500);
   }
 
-  /**
-   * Capture → download PNG
-   */
   const download = useCallback(async () => {
     if (!ref.current || status === "capturing") return;
     setStatus("capturing");
@@ -134,9 +120,6 @@ export function useScreenshot(ref) {
     }
   }, [ref, status]);
 
-  /**
-   * Capture → Web Share API (falls back to download if unsupported)
-   */
   const share = useCallback(async () => {
     if (!ref.current || status === "capturing") return;
     setStatus("capturing");
@@ -151,12 +134,10 @@ export function useScreenshot(ref) {
           text:  "Check out my 2026 FIFA World Cup bracket prediction!",
         });
       } else {
-        // Fallback: just download
         triggerDownload(blob, FILENAME);
       }
       flashDone();
     } catch (err) {
-      // AbortError = user cancelled the share sheet — not a real error
       if (err?.name === "AbortError") {
         setStatus("idle");
         return;
